@@ -35,7 +35,8 @@ class GForceWidget(Widget):
         bg_color: tuple = (0, 0, 0, 170),
         grid_color: tuple = (70, 70, 70, 200),
         dot_color: tuple = (255, 60, 60, 255),
-        trail_color: tuple = (255, 150, 50, 200)
+        trail_color: tuple = (255, 150, 50, 200),
+        smooth_factor: float = 0.15,
     ) -> None:
         super().__init__(size, size)
         self.max_g = max_g
@@ -44,9 +45,18 @@ class GForceWidget(Widget):
         self.dot_color = dot_color
         self.trail_color = trail_color
 
+        # smooth_factor is the EMA alpha (0 = frozen, 1 = raw/no filtering).
+        # 0.15 removes high-frequency road-surface noise while remaining
+        # responsive to genuine cornering and braking events.
+        self.smooth_factor = max(0.0, min(1.0, smooth_factor))
+
         max_trail = max(1, int(trail_seconds * fps))
         self._history: deque[tuple[float, float]] = deque(maxlen=max_trail)
         self._last_t = -1.0
+
+        # EMA filter state — initialised on the first sample
+        self._sx: float | None = None
+        self._sy: float | None = None
 
         label_size = max(10, size // 16)
         self._font_lbl = find_font(label_size)
@@ -121,7 +131,16 @@ class GForceWidget(Widget):
         if t > self._last_t:
             lat_g = telem.lateral_g_at(t)
             lon_g = telem.longitudinal_g_at(t)
-            self._history.append((lat_g, lon_g))
+
+            # EMA low-pass filter: filtered = α·raw + (1−α)·prev
+            if self._sx is None:
+                self._sx, self._sy = lat_g, lon_g   # seed on first sample
+            else:
+                a = self.smooth_factor
+                self._sx = a * lat_g + (1.0 - a) * self._sx
+                self._sy = a * lon_g + (1.0 - a) * self._sy
+
+            self._history.append((self._sx, self._sy))
             self._last_t = t
 
         hist = list(self._history)
