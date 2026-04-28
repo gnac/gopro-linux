@@ -67,14 +67,20 @@ def render_to_video(
         "-s",      f"{w}x{h}",
         "-r",      f"{fps:.6f}",
         "-i",      "pipe:0",
-        # Composite: overlay[1] on top of video[0]
-        "-filter_complex", "[0:v][1:v]overlay=0:0:shortest=1",
+        # Composite: overlay[1] on top of video[0].
+        # The explicit format=yuv420p conversion drops the deprecated yuvj420p
+        # pixel format (JPEG full-range YUV) that GoPro cameras produce, which
+        # causes FFmpeg to warn "deprecated pixel format used, make sure you did
+        # set range correctly" — especially with NVENC.
+        "-filter_complex", "[0:v][1:v]overlay=0:0:shortest=1,format=yuv420p",
         # Audio: copy from source unchanged
         "-map", "0:a?",
         # Encode
         "-c:v", video_codec,
         "-preset", preset,
-        "-crf",    str(crf),
+        # libx264 uses -crf for constant quality; NVENC uses -cq.
+        # Both accept the same 0-51 scale (lower = better quality).
+        *([ "-cq",  str(crf)] if gpu else ["-crf", str(crf)]),
         "-c:a", "copy",
         "-movflags", "+faststart",
         str(output_path),
@@ -108,8 +114,15 @@ def render_to_video(
         proc.stdin.close()
         proc.wait()
 
-    except (BrokenPipeError, KeyboardInterrupt):
+    except BaseException:
+        # Kill FFmpeg on any failure (render error, KeyboardInterrupt, etc.)
+        # so it doesn't block waiting for more stdin data and produce an empty file.
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
         proc.kill()
+        proc.wait()
         raise
 
     if proc.returncode != 0:

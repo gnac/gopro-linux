@@ -57,8 +57,8 @@ class Widget(ABC):
     """Base class for RGBA overlay widgets."""
 
     def __init__(self, width: int, height: int) -> None:
-        self.width  = width
-        self.height = height
+        self.width  = int(width)
+        self.height = int(height)
 
     def _blank(self) -> Image.Image:
         return Image.new("RGBA", (self.width, self.height), (0, 0, 0, 0))
