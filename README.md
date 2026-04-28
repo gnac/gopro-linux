@@ -1,6 +1,7 @@
 # gopro-linux
 
 A Linux command-line tool for adding telemetry overlays to GoPro videos.
+There are many overlay tools, but this one is mine, and it works on linux with a minimum of fuss.
 Reads the embedded GPMF metadata track (GPS, accelerometer) and renders
 configurable widgets onto the video using FFmpeg.
 
@@ -10,12 +11,19 @@ configurable widgets onto the video using FFmpeg.
 |---|---|---|
 | **Speed** | GPS 2-D speed | Selectable mph / kph / m/s |
 | **G-force circle** | Accelerometer (ACCL) | Lateral vs longitudinal, with fading trail |
-| **GPS track map** | GPS5 / GPS9 | Full track with live position dot |
+| **GPS track map** | GPS5 / GPS9 | Full track with live position dot, adjustable smoothing |
+| **Speed Grapsh** | GPS 2-D speed | Graph of speed over time during the video |
 
-These are the same overlays available in the GoPro Quik app, but running
-entirely on Linux with no account required.
+These are the similar to the overlays (aka stickers) available in the GoPro Quik app, but running
+entirely on Linux. No GoPro account or smart phone required. 
+The GForce overlay also can be "flipped" to account for camera orientation using the `--flip` flag.
+The GoPro app doesn't account for this when displaying the 
+GForce sticker, so your GForce remains inverted on GoPro Quick generated videos.
 
 ## Requirements
+
+- Linux
+  - This may also work on Windows (because python) but I have no way of verifying this.
 
 - Python 3.10+
 - `ffmpeg` and `ffprobe` (must be on `$PATH`)
@@ -68,6 +76,16 @@ gopro-overlay extract GH010123.MP4 --flip        # with mounting correction
 The CSV contains: `time_s, lat_deg, lon_deg, alt_m, speed_ms, speed_mph,
 speed_kph, accl_x_ms2, accl_y_ms2, accl_z_ms2, lateral_g, longitudinal_g`
 
+### Batch processing
+Same options as above, but can be applied all videos ina directory.
+```bash
+# default layout
+gopro-overlay batch   Videos/ --output-dir processed/
+
+# NVIDIA GPU encoding with axis correction.
+gopro-overlay batch Videos/ --output-dir processed/ --flip --gpu
+```
+
 ## Upside-down mounting
 
 GoPro cameras store accelerometer data in **ZXY order** (camera-Z,
@@ -89,6 +107,7 @@ axis independently:
 ```
 gopro-overlay overlay --help
 gopro-overlay extract --help
+gopro-overlay batch --help
 ```
 
 ## Project structure
@@ -104,18 +123,20 @@ src/gopro_linux/
 ├── overlay/
 │   ├── renderer.py      Composites widgets into RGBA frames
 │   └── widgets/
-│       ├── base.py      Widget ABC + system font finder
-│       ├── speed.py     Digital speed readout
-│       ├── gforce.py    G-force scatter circle
-│       └── track.py     GPS track map
+│       ├── base.py         Widget ABC + system font finder
+│       ├── gforce.py       G-force scatter circle
+│       ├── speed.py        Digital speed readout
+│       ├── speed_graph.py  Live update Speed Graph
+│       └── track.py        GPS track map
 ├── ffmpeg.py            Pipes RGBA frames into FFmpeg for encoding
 └── cli.py               Click CLI (overlay / extract commands)
 ```
 
 ## Supported cameras
 
-Any GoPro that embeds GPMF telemetry — Hero 5 through Hero 13 and beyond,
+Theortically this should work with any GoPro that embeds GPMF telemetry — Hero 5 through Hero 13 and beyond,
 including GPS5 (older) and GPS9 (Hero 11+) stream formats.
+Only tested on a GoPro Hero 10. Feel free to donate additional cameras for testing.
 
 ## Performance
 
