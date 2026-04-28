@@ -1,7 +1,7 @@
 # gopro-linux
 
-A Linux command-line tool for adding telemetry overlays to GoPro videos.
-There are many overlay tools, but this one is mine, and it works on linux with a minimum of fuss.
+A (Linux) command-line tool for adding telemetry overlays to GoPro videos.
+There are many overlay tools, but this one is mine, and it works on Linux with a minimum of fuss.
 Reads the embedded GPMF metadata track (GPS, accelerometer) and renders
 configurable widgets onto the video using FFmpeg.
 
