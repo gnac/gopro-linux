@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gopro-linux"
+version = "0.1.0"
+description = "GoPro GPMF telemetry overlay tool for Linux"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.0",
+    "numpy>=1.24",
+    "pillow>=10.0",
+    "scipy>=1.10",
+]
+
+[project.scripts]
+gopro-overlay = "gopro_linux.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gopro_linux"]
+
+[tool.hatch.envs.default]
+dependencies = ["pytest", "hatchling"]
