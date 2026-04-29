@@ -83,3 +83,42 @@ class TelemetryData:
         """Longitudinal g-force at *t* (positive = forward acceleration)."""
         _, ay, _ = self.accl_at(t)
         return ay / 9.80665
+
+    # ── Trim ─────────────────────────────────────────────────────────────────
+
+    def trim(self, start: float, end: float) -> "TelemetryData":
+        """
+        Return a new TelemetryData sliced to the window [start, end] seconds.
+
+        All timestamps are re-zeroed so that *start* becomes t=0 in the
+        returned object.  The original is not modified.
+
+        Parameters
+        ----------
+        start : float
+            Start of the window in seconds (inclusive).
+        end : float
+            End of the window in seconds (inclusive).
+        """
+        out = TelemetryData()
+        out.fps    = self.fps
+        out.width  = self.width
+        out.height = self.height
+        out.duration = max(0.0, end - start)
+
+        if self.has_gps():
+            mask = (self.gps_time >= start) & (self.gps_time <= end)
+            out.gps_time  = self.gps_time[mask]  - start
+            out.gps_lat   = self.gps_lat[mask]
+            out.gps_lon   = self.gps_lon[mask]
+            out.gps_alt   = self.gps_alt[mask]
+            out.gps_speed = self.gps_speed[mask]
+
+        if self.has_accl():
+            mask = (self.accl_time >= start) & (self.accl_time <= end)
+            out.accl_time = self.accl_time[mask] - start
+            out.accl_x    = self.accl_x[mask]
+            out.accl_y    = self.accl_y[mask]
+            out.accl_z    = self.accl_z[mask]
+
+        return out

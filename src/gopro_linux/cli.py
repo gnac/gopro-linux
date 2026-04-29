@@ -7,6 +7,38 @@ from typing import Optional
 
 import click
 
+
+def _parse_time(value: str) -> float:
+    """
+    Parse an FFmpeg-style time string to seconds.
+
+    Accepted formats (matching FFmpeg's -ss / -to syntax):
+        90          pure seconds (int or float)
+        1:30        MM:SS
+        1:30.5      MM:SS.mmm
+        1:30:00     HH:MM:SS
+        1:30:00.5   HH:MM:SS.mmm
+    """
+    value = value.strip()
+    # Pure number
+    try:
+        return float(value)
+    except ValueError:
+        pass
+    # [HH:]MM:SS[.mmm]
+    parts = value.split(":")
+    try:
+        parts = [float(p) for p in parts]
+        if len(parts) == 2:
+            return parts[0] * 60.0 + parts[1]
+        if len(parts) == 3:
+            return parts[0] * 3600.0 + parts[1] * 60.0 + parts[2]
+    except ValueError:
+        pass
+    raise click.BadParameter(
+        f"Cannot parse time {value!r}. Use seconds (90.5) or [HH:]MM:SS."
+    )
+
 from gopro_linux.telemetry import load_telemetry
 from gopro_linux.overlay.renderer import OverlayRenderer
 from gopro_linux.ffmpeg import render_to_video
@@ -57,6 +89,13 @@ def _add_options(options):
     return decorator
 
 
+def _resolve_trim(start_str: Optional[str], end_str: Optional[str]) -> tuple[float, Optional[float]]:
+    """Parse --start / --end strings into (start_seconds, end_seconds_or_None)."""
+    start = _parse_time(start_str) if start_str else 0.0
+    end   = _parse_time(end_str)   if end_str   else None
+    return start, end
+
+
 def _resolve_flip(flip, flip_x, flip_y, flip_z):
     """--flip is shorthand for --flip-x --flip-z (upside-down lens-axis rotation)."""
     if flip:
@@ -83,7 +122,9 @@ def _render_one(
     preset:         str,
     gpu:            bool,
     verbose:        bool,
-    label:          str = "",
+    start:          float        = 0.0,
+    end:            Optional[float] = None,
+    label:          str          = "",
 ) -> bool:
     """
     Load telemetry for *input_path*, render the overlay, and write *output_path*.
@@ -99,6 +140,8 @@ def _render_one(
             input_path,
             flip_x=flip_x, flip_y=flip_y, flip_z=flip_z,
             smooth_window=smooth,
+            start=start,
+            end=end,
         )
     except Exception as exc:
         click.echo(f"{prefix}Error loading telemetry: {exc}", err=True)
@@ -108,6 +151,9 @@ def _render_one(
         f"{prefix}  Video  : {telem.width}x{telem.height} @ {telem.fps:.2f} fps  "
         f"duration {telem.duration:.1f}s"
     )
+    if start > 0.0 or end is not None:
+        t_end = end if end is not None else start + telem.duration
+        click.echo(f"{prefix}  Trim   : {start:.1f}s → {t_end:.1f}s")
     if telem.has_gps():
         hz = len(telem.gps_time) / max(telem.duration, 1)
         click.echo(f"{prefix}  GPS    : {len(telem.gps_time)} samples  (~{hz:.0f} Hz)")
@@ -137,6 +183,7 @@ def _render_one(
         render_to_video(
             input_path, output_path, telem, renderer,
             crf=crf, preset=preset, gpu=gpu, verbose=verbose,
+            start=start, end=end,
         )
     except Exception as exc:
         click.echo(f"{prefix}Render error: {exc}", err=True)
@@ -172,6 +219,12 @@ def main():
 @click.argument("output", type=click.Path(path_type=Path))
 @_add_options(_flip_options)
 @_add_options(_render_options)
+@click.option("--start", "start_str", default=None, metavar="TIME",
+              help="Trim start time — seconds (90) or [HH:]MM:SS (1:30). "
+                   "Default: beginning of video.")
+@click.option("--end", "end_str", default=None, metavar="TIME",
+              help="Trim end time — seconds (270) or [HH:]MM:SS (4:30). "
+                   "Default: end of video.")
 @click.option("--verbose", "-v", is_flag=True, default=False,
               help="Show FFmpeg output.")
 def overlay(
@@ -180,6 +233,7 @@ def overlay(
     units: str,
     no_speed: bool, no_gforce: bool, no_track: bool, no_speed_graph: bool,
     smooth: int, crf: int, preset: str, gpu: bool,
+    start_str: Optional[str], end_str: Optional[str],
     verbose: bool,
 ):
     """Add telemetry overlays to a GoPro video.
@@ -192,9 +246,10 @@ def overlay(
     Examples:
       gopro-overlay overlay GH010123.MP4 out.mp4
       gopro-overlay overlay GH010123.MP4 out.mp4 --flip --units kph
-      gopro-overlay overlay GH010123.MP4 out.mp4 --no-track --crf 18
+      gopro-overlay overlay GH010123.MP4 out.mp4 --start 1:30 --end 4:45
     """
     flip_x, flip_y, flip_z = _resolve_flip(flip, flip_x, flip_y, flip_z)
+    start, end = _resolve_trim(start_str, end_str)
 
     ok = _render_one(
         input, output,
@@ -204,6 +259,7 @@ def overlay(
         no_track=no_track, no_speed_graph=no_speed_graph,
         smooth=smooth, crf=crf, preset=preset, gpu=gpu,
         verbose=verbose,
+        start=start, end=end,
     )
     if not ok:
         sys.exit(1)
@@ -226,6 +282,10 @@ def overlay(
               help="Glob pattern used when scanning a directory input.")
 @click.option("--skip-existing", is_flag=True, default=False,
               help="Skip a file if its output already exists.")
+@click.option("--start", "start_str", default=None, metavar="TIME",
+              help="Trim start time applied to every file (seconds or [HH:]MM:SS).")
+@click.option("--end", "end_str", default=None, metavar="TIME",
+              help="Trim end time applied to every file (seconds or [HH:]MM:SS).")
 @click.option("--verbose", "-v", is_flag=True, default=False,
               help="Show FFmpeg output for each file.")
 def batch(
@@ -238,6 +298,7 @@ def batch(
     suffix: str,
     pattern: str,
     skip_existing: bool,
+    start_str: Optional[str], end_str: Optional[str],
     verbose: bool,
 ):
     """Process multiple GoPro videos in one run.
@@ -261,6 +322,7 @@ def batch(
       gopro-overlay batch Videos/**/*.MP4 --output-dir processed/
     """
     flip_x, flip_y, flip_z = _resolve_flip(flip, flip_x, flip_y, flip_z)
+    start, end = _resolve_trim(start_str, end_str)
 
     # ── Collect the file list ─────────────────────────────────────────────
     queue: list[Path] = []
@@ -317,6 +379,7 @@ def batch(
             no_track=no_track, no_speed_graph=no_speed_graph,
             smooth=smooth, crf=crf, preset=preset, gpu=gpu,
             verbose=verbose,
+            start=start, end=end,
             label=f"{i}/{total}",
         )
         if ok:

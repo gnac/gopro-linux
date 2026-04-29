@@ -14,10 +14,12 @@ def render_to_video(
     telem:       TelemetryData,
     renderer:    OverlayRenderer,
     *,
-    crf:     int  = 23,
-    preset:  str  = "medium",
-    gpu:     bool = False,
-    verbose: bool = False,
+    crf:     int          = 23,
+    preset:  str          = "medium",
+    gpu:     bool         = False,
+    verbose: bool         = False,
+    start:   float        = 0.0,
+    end:     float | None = None,
 ) -> None:
     """
     Render the overlay onto *input_path* and write to *output_path*.
@@ -47,6 +49,10 @@ def render_to_video(
         Use NVIDIA NVENC instead of libx264.
     verbose : bool
         Pass FFmpeg output through to stderr.
+    The *start* / *end* values are passed directly to FFmpeg as ``-ss`` /
+    ``-to`` input options (fast keyframe seek).  They should match whatever
+    was passed to ``load_telemetry`` so that the overlay and the video are
+    trimmed to the same window.
     """
     w   = telem.width
     h   = telem.height
@@ -54,9 +60,19 @@ def render_to_video(
 
     video_codec = "h264_nvenc" if gpu else "libx264"
 
+    # Build the seek/trim flags for the source video.  Placing -ss and -to
+    # before -i uses fast keyframe seek (accurate to within one GOP, typically
+    # <0.5 s on GoPro footage) which is fast enough for lap-level trimming.
+    seek_flags: list[str] = []
+    if start > 0.0:
+        seek_flags += ["-ss", f"{start:.6f}"]
+    if end is not None:
+        seek_flags += ["-to", f"{end:.6f}"]
+
     cmd = [
         "ffmpeg", "-y",
-        # Input 0: original video (from file)
+        # Input 0: original video (from file), with optional seek/trim
+        *seek_flags,
         "-i", str(input_path),
         # Input 1: RGBA overlay frames from Python via stdin
         # Use the standard -pix_fmt / -s / -r forms; the AVOption aliases

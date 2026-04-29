@@ -16,6 +16,8 @@ def load_telemetry(
     flip_y: bool = False,
     flip_z: bool = False,
     smooth_window: int = 5,
+    start: float = 0.0,
+    end: float | None = None,
 ) -> TelemetryData:
     """
     Load GPMF telemetry from a GoPro MP4 and return a ``TelemetryData`` object.
@@ -28,6 +30,10 @@ def load_telemetry(
         Negate the corresponding accelerometer axis (see correction module).
     smooth_window : int
         Moving-average window for accelerometer smoothing (1 = disabled).
+    start : float
+        Trim start time in seconds.  Defaults to 0 (beginning of video).
+    end : float or None
+        Trim end time in seconds.  Defaults to None (end of video).
     """
     packets, video_info = parse_gpmf_file(input_path)
 
@@ -123,5 +129,12 @@ def load_telemetry(
         t.accl_x    = ax
         t.accl_y    = ay
         t.accl_z    = az
+
+    # ── Trim to requested window ─────────────────────────────────────────────
+    trim_start = max(0.0, start)
+    trim_end   = min(t.duration, end) if end is not None else t.duration
+
+    if trim_start > 0.0 or trim_end < t.duration:
+        t = t.trim(trim_start, trim_end)
 
     return t
